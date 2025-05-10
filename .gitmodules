@@ -1,0 +1,9 @@
+[submodule "vendor/uf2"]
+	path = vendor/uf2
+	url = https://github.com/microsoft/uf2
+[submodule "vendor/pico-sdk"]
+	path = vendor/pico-sdk
+	url = https://github.com/raspberrypi/pico-sdk
+[submodule "vendor/mcu-starter-projects"]
+	path = vendor/mcu-starter-projects
+	url = https://github.com/ataradov/mcu-starter-projects
