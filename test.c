@@ -1,16 +1,26 @@
 #include <pico/stdlib.h>
+
 #include "hardware/gpio.h"
 #include "hardware/adc.h"
+#include "hardware/watchdog.h"
 
 #define VOLTAGE_SAMPLES 1000
 #define MICROSECONDS_PER_SECOND 1000000
 #define SECONDS_PER_MINUTE 60
 #define FIRMWARE_ENTRY 0x10000100
 
+#define GPIO_VBUS 24
+
+#define ROM_TABLE_CODE(c1, c2) ((c1) | ((c2) << 8))
+#define ROM_FUNC_REBOOT                         ROM_TABLE_CODE('R', 'B')
+#define BOOT_TYPE_NORMAL     0
+
 /* 
     GetVSYSVoltage
     
     returns measured voltage on V_SYS * 1000
+    taking into account the voltage divider
+    on the pico board
 */
 unsigned int GetVSYSVoltage() {
     unsigned int voltage_raw_adc_sum = 0;
@@ -34,7 +44,7 @@ unsigned int GetVSYSVoltage() {
     
     // Normalize sensed voltage to a 3.3V reference voltage and a maximum
     // value of (2^12)-1 and a 1/3 voltage divider
-    unsigned int sensed_voltage = (voltage_raw_adc_sum * 33)/ ( 10 * ((1<<12)-1) );
+    unsigned int sensed_voltage = (voltage_raw_adc_sum * 33)/ (10 * ((1<<12)-1));
     unsigned int voltage = sensed_voltage * 3;
 
     return voltage;
@@ -52,13 +62,12 @@ void BootToFirmware(void) {
     *(unsigned int *)(0xe0000000 + 0xed08) = FIRMWARE_ENTRY;
     // First two words after the 256 byte XIP boot2 
     // are the processor mode settings and the entry vector
-    
     unsigned int mode = *((unsigned int *)(FIRMWARE_ENTRY));
     unsigned int entry = *((unsigned int *)(FIRMWARE_ENTRY+4));
 
-    // Inline assembly to jump to the Thumb function
+    // Inline assembly to mimic boot2 action
     __asm__ volatile (
-        "msr msp, %[m]"        // Branch and exchange instruction
+        "msr msp, %[m]"        // Set mode bits
         :
         : [m] "r" (mode)
     );
@@ -70,9 +79,32 @@ void BootToFirmware(void) {
         : [addr] "r" (entry | 1)
     );
 
+    // Never gets here
+}
+
+/* use the watchdog to reset the pico */
+void machine_reset(void) {
+    watchdog_reboot(0, SRAM_END, 0);
+    for (;;) {
+        __asm__ volatile (
+            "wfi"        // Wait for interrupt
+        );
+    }
+}
+
+/* callback to trigger a reset if VBUS presence detected */
+void gpio_callback(uint gpio, uint32_t events) {
+    if (gpio == GPIO_VBUS) {
+        machine_reset();
+    }
 }
 
 int main(int argc, char *argv) {
+    /* 
+        Monitor the V_BUS pin (GPIO24) to detect 
+        a rising edge -> solar or USB power appeared
+    */
+    gpio_init(GPIO_VBUS);
 
     /* 
         In flight mode, we're here because:
@@ -80,14 +112,17 @@ int main(int argc, char *argv) {
         - Main firmware has caused a reset because it wants to sleep
         - Power has been restored 
     */
-
-    // Is the battery essentially fully charger (or we're plugged in?)
     for (;;) {
         unsigned int voltage = GetVSYSVoltage();
 
-        if (voltage > 4100) {
+        if ((voltage > 4100) || (gpio_get(GPIO_VBUS))){
+            // Fully charged or plugged in
             BootToFirmware();
-        } else if (voltage > 3000) {
+        } 
+        
+        gpio_set_irq_enabled_with_callback(GPIO_VBUS, GPIO_IRQ_EDGE_RISE, true, &gpio_callback);
+
+        if (voltage > 3000) {
             /* Sleep for a while */
             SleepMinutes(30);
 
