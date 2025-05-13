@@ -70,10 +70,9 @@ void SleepMinutes(unsigned int minutes) {
     sleep_run_from_xosc();
 
     sleep_goto_sleep_for(minutes * SECONDS_PER_MINUTE * 1000, &sleep_callback);
-
+    
     // Restore the original state of the SCB and clock gates
     sleep_power_up();
-    set_sys_clock_48mhz();
 }
 
 void BootToFirmware(void) {
@@ -122,8 +121,6 @@ void gpio_callback(uint gpio, uint32_t events) {
 
 int main(int argc, char *argv) {
     
-    set_sys_clock_48mhz();
-
     /* 
         Monitor the V_BUS pin (GPIO24) to detect 
         a rising edge -> solar or USB power appeared
