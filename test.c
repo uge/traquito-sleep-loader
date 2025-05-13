@@ -1,8 +1,18 @@
 #include <pico/stdlib.h>
 
+
 #include "hardware/gpio.h"
 #include "hardware/adc.h"
 #include "hardware/watchdog.h"
+#include "hardware/clocks.h"
+#include "hardware/regs/io_bank0.h"
+#include "hardware/rosc.h"
+#include "hardware/rtc.h"
+#include "hardware/structs/scb.h"
+#include "hardware/pll.h"
+
+#include "pico/util/datetime.h"
+#include <pico/sleep.h>
 
 #define VOLTAGE_SAMPLES 1000
 #define MICROSECONDS_PER_SECOND 1000000
@@ -50,12 +60,20 @@ unsigned int GetVSYSVoltage() {
     return voltage;
 }
 
-void SleepMinutes(unsigned int minutes) {
-    /* Current time in microseconds */
-    absolute_time_t current_time = get_absolute_time();
-    absolute_time_t sleep_duration = minutes * SECONDS_PER_MINUTE * MICROSECONDS_PER_SECOND;
+static bool awake;
 
-    sleep_until(current_time + sleep_duration);
+void sleep_callback(unsigned int alarm_num) {
+    awake = true;
+}
+
+void SleepMinutes(unsigned int minutes) {
+    sleep_run_from_xosc();
+
+    sleep_goto_sleep_for(minutes * SECONDS_PER_MINUTE * 1000, &sleep_callback);
+
+    // Restore the original state of the SCB and clock gates
+    sleep_power_up();
+    set_sys_clock_48mhz();
 }
 
 void BootToFirmware(void) {
@@ -94,12 +112,18 @@ void machine_reset(void) {
 
 /* callback to trigger a reset if VBUS presence detected */
 void gpio_callback(uint gpio, uint32_t events) {
+    // Very likely callback happened from a sleep state
+    sleep_power_up();
+
     if (gpio == GPIO_VBUS) {
         machine_reset();
     }
 }
 
 int main(int argc, char *argv) {
+    
+    set_sys_clock_48mhz();
+
     /* 
         Monitor the V_BUS pin (GPIO24) to detect 
         a rising edge -> solar or USB power appeared
@@ -119,7 +143,10 @@ int main(int argc, char *argv) {
             // Fully charged or plugged in
             BootToFirmware();
         } 
-        
+    
+        /* Triggered by either USB connection or solar power appearing */
+        /* Low solar power is sufficient to trigger this because of the voltage */
+        /* levels on the digital input */
         gpio_set_irq_enabled_with_callback(GPIO_VBUS, GPIO_IRQ_EDGE_RISE, true, &gpio_callback);
 
         if (voltage > 3000) {
