@@ -1,6 +1,4 @@
 #include <pico/stdlib.h>
-
-
 #include "hardware/gpio.h"
 #include "hardware/adc.h"
 #include "hardware/watchdog.h"
@@ -20,10 +18,6 @@
 #define FIRMWARE_ENTRY 0x10000100
 
 #define GPIO_VBUS 24
-
-#define ROM_TABLE_CODE(c1, c2) ((c1) | ((c2) << 8))
-#define ROM_FUNC_REBOOT                         ROM_TABLE_CODE('R', 'B')
-#define BOOT_TYPE_NORMAL     0
 
 /* 
     GetVSYSVoltage
@@ -136,7 +130,7 @@ int main(int argc, char *argv) {
     for (;;) {
         unsigned int voltage = GetVSYSVoltage();
 
-        if ((voltage > 4100) || (gpio_get(GPIO_VBUS))){
+        if ((voltage > 4100) || (gpio_get(GPIO_VBUS) && (voltage > 3000))) {
             // Fully charged or plugged in
             BootToFirmware();
         } 
@@ -152,6 +146,8 @@ int main(int argc, char *argv) {
 
             /* Attempt to run firmware only if voltage is above */
             /* a threshold after sleep                          */
+            /* Jetpack has a reset monitor circuit that will    */
+            /* assert reset at 2.6V V_SYS                       */
             if (GetVSYSVoltage() > 2800) {
                 BootToFirmware();
             }
