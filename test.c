@@ -17,6 +17,16 @@
 #define SECONDS_PER_MINUTE 60
 #define FIRMWARE_ENTRY 0x10000100
 
+
+/* If a transmit rate of once every 60 minutes is desired, the  */
+/* Traquito firmware will reboot to enter this code during the  */
+/* last ten seconds of the transmit slot. If default telemetry  */
+/* is used, that's slot 2 so we'll return here at 4 minutes     */
+/* past the start of the transmission. To wake up early enough  */
+/* to get a GPS lock, sleep for 60 - 4 (2 slots) - gps_lock and */
+/* warm up time.                                                */
+#define SLEEP_MINUTES 52
+
 #define GPIO_VBUS 24
 
 /* 
@@ -130,7 +140,7 @@ int main(int argc, char *argv) {
     for (;;) {
         unsigned int voltage = GetVSYSVoltage();
 
-        if ((voltage > 4100) || (gpio_get(GPIO_VBUS) && (voltage > 3000))) {
+        if ((voltage > 4100)) {
             // Fully charged or plugged in
             BootToFirmware();
         } 
@@ -140,19 +150,19 @@ int main(int argc, char *argv) {
         /* levels on the digital input */
         gpio_set_irq_enabled_with_callback(GPIO_VBUS, GPIO_IRQ_EDGE_RISE, true, &gpio_callback);
 
-        if (voltage > 3000) {
+        if (voltage > 3200) {
             /* Sleep for a while */
-            SleepMinutes(30);
+            SleepMinutes(SLEEP_MINUTES);
 
             /* Attempt to run firmware only if voltage is above */
             /* a threshold after sleep                          */
             /* Jetpack has a reset monitor circuit that will    */
             /* assert reset at 2.6V V_SYS                       */
-            if (GetVSYSVoltage() > 2800) {
+            if (GetVSYSVoltage() > 3000) {
                 BootToFirmware();
             }
         } else {
-            SleepMinutes(30);
+            SleepMinutes(SLEEP_MINUTES);
         }
     }
 
